@@ -1,0 +1,54 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+    - "5432:5432"
+    environment:
+      POSTGRES_DB: bookleaf
+      POSTGRES_USER: bookleaf
+      POSTGRES_PASSWORD: bookleaf
+    volumes: [bookleaf_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bookleaf -d bookleaf"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://bookleaf:bookleaf@db:5432/bookleaf?schema=public
+      API_PORT: 4000
+      CLIENT_ORIGIN: http://localhost:5173,http://localhost:8080
+      N8N_WEBHOOK_URL: http://n8n:5678/webhook/royalty-summary
+      PUBLIC_API_URL: http://api:4000
+    ports: ["4000:4000"]
+    depends_on:
+      db: {condition: service_healthy}
+      n8n: {condition: service_started}
+  web:
+    build: {context: ., dockerfile: client/Dockerfile}
+    restart: unless-stopped
+    ports: ["8080:80"]
+    depends_on: [api]
+  n8n:
+    image: n8nio/n8n:2.46.4
+    restart: unless-stopped
+    ports: ["5678:5678"]
+    environment:
+      N8N_HOST: localhost
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://localhost:5678/
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-bookleaf-local-development-key-change-me}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET}
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      GENERIC_TIMEZONE: Asia/Kolkata
+    volumes: [n8n_data:/home/node/.n8n]
+volumes:
+  bookleaf_data:
+  n8n_data:

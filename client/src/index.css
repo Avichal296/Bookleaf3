@@ -1,0 +1,2 @@
+@tailwind base;@tailwind components;@tailwind utilities;
+:root{font-family:'DM Sans',sans-serif;color:#17251f;background:#f7f8f6;font-synthesis:none;text-rendering:optimizeLegibility}*{box-sizing:border-box}body{margin:0;min-width:320px}button,input,select{font:inherit}button{cursor:pointer}.display{font-family:Manrope,sans-serif}.scrollbar-hide::-webkit-scrollbar{display:none}.card-shadow{box-shadow:0 2px 10px rgba(30,50,40,.035)}

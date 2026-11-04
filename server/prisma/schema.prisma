@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  AUTHOR
+}
+
+enum BookStatus {
+  PRODUCTION
+  PUBLISHED
+}
+
+enum NotificationStatus {
+  QUEUED
+  PROCESSING
+  SUCCESS
+  FAILED
+}
+
+model User {
+  id            String         @id @default(cuid())
+  sourceId      String?        @unique
+  name          String
+  email         String         @unique
+  passwordHash  String
+  role          Role           @default(AUTHOR)
+  city          String?
+  phone         String?
+  joinedAt      DateTime?
+  createdAt     DateTime       @default(now())
+  books         Book[]
+  notifications Notification[]
+}
+
+model Book {
+  id             String     @id @default(cuid())
+  sourceId       String?    @unique
+  authorId       String
+  author         User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  title          String
+  isbn           String     @unique
+  genre          String
+  status         BookStatus @default(PUBLISHED)
+  sourceStatus   String     @default("Published & Live")
+  publishedAt    DateTime?
+  mrp            Decimal    @db.Decimal(10, 2)
+  royaltyPerCopy Decimal?   @db.Decimal(10, 2)
+  platform       String
+  availableOn    String[]   @default([])
+  sales          Sale[]
+  royalties      Royalty[]
+  createdAt      DateTime   @default(now())
+
+  @@index([authorId, status])
+}
+
+model Sale {
+  id        String   @id @default(cuid())
+  bookId    String
+  book      Book     @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  platform  String
+  units     Int
+  period    String
+  createdAt DateTime @default(now())
+
+  @@unique([bookId, period, platform])
+  @@index([bookId, period])
+}
+
+model Royalty {
+  id           String    @id @default(cuid())
+  bookId       String
+  book         Book      @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  amount       Decimal   @db.Decimal(10, 2)
+  paidAmount   Decimal   @default(0) @db.Decimal(10, 2)
+  period       String
+  lastPayoutAt DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([bookId, period])
+}
+
+model Notification {
+  id             String             @id @default(cuid())
+  authorId       String
+  author         User               @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  status         NotificationStatus @default(QUEUED)
+  subject        String
+  body           String             @db.Text
+  error          String?            @db.Text
+  idempotencyKey String             @unique
+  triggeredBy    String
+  createdAt      DateTime           @default(now())
+  completedAt    DateTime?
+
+  @@index([authorId, createdAt])
+  @@index([status, createdAt])
+}

@@ -1,0 +1,216 @@
+{
+  "name": "BookLeaf | Author royalty summary",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "royalty-summary",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "bl-webhook",
+      "name": "1 · Secured webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [180, 320],
+      "webhookId": "bookleaf-royalty-summary",
+      "notes": "The API sends x-webhook-secret. Validate it before processing."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bl-secret-check",
+              "leftValue": "={{ $json.headers['x-webhook-secret'] }}",
+              "rightValue": "={{ $env.WEBHOOK_SECRET }}",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bl-auth",
+      "name": "2 · Validate shared secret",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [400, 320]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:4000/api/automation/process",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-webhook-secret",
+              "value": "={{ $env.WEBHOOK_SECRET }}"
+            },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body ?? $json) }}",
+        "options": {
+          "timeout": 60000,
+          "retry": { "maxTries": 2, "waitBetweenTries": 1500 }
+        }
+      },
+      "id": "bl-process",
+      "name": "3 · Fetch data & draft with AI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [650, 240],
+      "onError": "continueErrorOutput",
+      "notes": "The API loads the normalized author, book, sales and royalty records and creates a policy-grounded email draft. AI errors are sent down the failure branch."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:4000/api/automation/callback",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-webhook-secret",
+              "value": "={{ $env.WEBHOOK_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({notificationId:$json.notificationId,status:'SUCCESS',subject:$json.subject,body:$json.body}) }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "bl-success",
+      "name": "4a · Record success",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [920, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:4000/api/automation/callback",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-webhook-secret",
+              "value": "={{ $env.WEBHOOK_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({notificationId:$('1 · Secured webhook').item.json.body.notificationId,status:'FAILED',error:$json.error?.message ?? $json.message ?? 'AI or data service request failed'}) }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "bl-failure",
+      "name": "4b · Record failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [920, 400],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({accepted:true,status:'SUCCESS',notificationId:$json.notificationId}) }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "bl-response",
+      "name": "5 · Confirm completion",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1190, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({accepted:true,status:'FAILED',notificationId:$('1 · Secured webhook').item.json.body.notificationId}) }}",
+        "options": { "responseCode": 502 }
+      },
+      "id": "bl-failure-response",
+      "name": "5b · Return failure",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1190, 420]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({error:'Invalid webhook secret'}) }}",
+        "options": { "responseCode": 401 }
+      },
+      "id": "bl-deny",
+      "name": "Reject unauthorized call",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [650, 520]
+    },
+    {
+      "parameters": {
+        "content": "Workflow notes\n\n• Configure WEBHOOK_SECRET in the n8n container and the API environment.\n• The webhook receives an author ID and idempotency key; the API fetches the source of truth from PostgreSQL.\n• Add an SMTP node after the success callback to deliver real email. The current required output is generated, stored and reviewable in the in-app notification log.\n• Failure branch writes the error and completion timestamp to the same log.",
+        "height": 240,
+        "width": 300
+      },
+      "id": "bl-note",
+      "name": "Operations notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [180, 580]
+    }
+  ],
+  "connections": {
+    "1 · Secured webhook": {
+      "main": [
+        [{ "node": "2 · Validate shared secret", "type": "main", "index": 0 }]
+      ]
+    },
+    "2 · Validate shared secret": {
+      "main": [
+        [
+          {
+            "node": "3 · Fetch data & draft with AI",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [{ "node": "Reject unauthorized call", "type": "main", "index": 0 }]
+      ]
+    },
+    "3 · Fetch data & draft with AI": {
+      "main": [
+        [{ "node": "4a · Record success", "type": "main", "index": 0 }],
+        [{ "node": "4b · Record failure", "type": "main", "index": 0 }]
+      ]
+    },
+    "4a · Record success": {
+      "main": [
+        [{ "node": "5 · Confirm completion", "type": "main", "index": 0 }]
+      ]
+    },
+    "4b · Record failure": {
+      "main": [[{ "node": "5b · Return failure", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "8e4e02bf-487c-4c51-9aa9-963a4b5cb1b6",
+  "meta": { "templateCredsSetupCompleted": true },
+  "tags": []
+}
